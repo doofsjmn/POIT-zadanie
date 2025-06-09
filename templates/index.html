@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Meranie Teploty a Vlhkosti</title>
+</head>
+<body>
+    <div>
+    <button class="tablinks" onclick="openTab(event,'measuring')">Meranie</button>
+    <button class="tablinks" onclick="openTab(event,'file')">Súbor</button>
+    <button class="tablinks" onclick="openTab(event,'database')">Databáza</button>
+    </div>
+
+    <div id="measuring" class="tabcontent" style="display: block;">
+        <h1>Meranie Teploty a Vlhkosti</h1>
+
+        <button onclick="sendCommand('open')">Open</button>
+        <button onclick="sendCommand('start')">Start</button>
+        <button onclick="sendCommand('stop')">Stop</button>
+        <button onclick="sendCommand('close')">Close</button>
+
+        <p>Vlhkosť: <span id="humidity">--</span>%</p>
+        <p>Teplota: <span id="temperature">--</span>°C</p>
+
+        <h2>Graf</h2>
+        <canvas id="sensorChart" width="400" height="200"></canvas>
+
+        <h2>Ciferníky</h2>
+        <div>
+            <p>Teplota[°C]:</p>
+            <canvas id="gaugeTemp" width="300" height="150"></canvas>
+            <div style="display: flex; justify-content: space-between; width: 300px; font-size: 14px;">
+            <span>-50</span>
+            <span>50</span>
+        </div>
+            <p>Vlhkosť[%]:</p>
+            <canvas id="gaugeHum" width="300" height="150"></canvas>
+            <div style="display: flex; justify-content: space-between; width: 300px; font-size: 14px;">
+            <span>0</span>
+            <span>100</span>
+            </div>
+        </div>
+
+        <h2>Merania</h2>
+        <ul id="data-list"></ul>
+    </div>
+
+    <div id="file" class="tabcontent" style="display: none;">
+        <h1>Výpis a vykreslenie zo súboru</h1>
+
+        <input type="file" id="csvFile" accept=".csv">
+
+        <h2>Graf</h2>
+        <canvas id="fileChart" width="400" height="200"></canvas>
+
+        <h2>Výpis</h2>
+        <ul id="file-list"></ul>
+    </div>
+
+    <div id="database" class="tabcontent" style="display: none;">
+        <h1>Výpis a vykreslenie z databázy</h1>
+
+        <h2>Graf</h2>
+        <canvas id="dbChart" width="400" height="200"></canvas>
+
+        <h2>Výpis</h2>
+        <ul id="db-list"></ul>
+    </div>
+
+    <script src="https://cdn.socket.io/4.4.1/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/gaugeJS@1.3.7/dist/gauge.min.js"></script>
+
+    <script>
+
+        //PREPINANIE TABOV
+
+        function openTab(evt,tabName){
+            var i, tabcontent, tablinks;
+
+            tabcontent = document.getElementsByClassName("tabcontent");
+            for (i = 0; i < tabcontent.length; i++) {
+                tabcontent[i].style.display = "none";
+            }
+
+            tablinks = document.getElementsByClassName("tablinks");
+            for (i = 0; i < tablinks.length; i++) {
+                tablinks[i].className = tablinks[i].className.replace(" active", "");
+            }
+
+            document.getElementById(tabName).style.display = "block";
+            evt.currentTarget.className += " active";
+        }
+
+        //MERANIE TAB
+
+        const socket = io();
+        let lastDataTimestamp = Date.now();
+
+        socket.on('connect', () => {
+            console.log('Connected to server');
+        });
+        socket.on('sensor_data', function(data) {
+            lastDataTimestamp = Date.now();
+            
+            //aktuálne hodnoty
+            console.log("Received from server:", data);
+            document.getElementById('humidity').textContent = data.humidity.toFixed(1);
+            document.getElementById('temperature').textContent = data.temperature.toFixed(1);
+
+            //zoznam hodnot
+            const listItem = document.createElement('li');
+            const timestamp = new Date().toLocaleTimeString();
+            listItem.textContent = `${timestamp} - Vlhkosť: ${data.humidity.toFixed(1)} %, Teplota: ${data.temperature.toFixed(1)} °C`;
+
+            const dataList = document.getElementById('data-list');
+            dataList.appendChild(listItem);
+
+            //zadanie hodnot do grafu
+            sensorChart.data.labels.push(timestamp);
+            sensorChart.data.datasets[0].data.push(data.humidity);
+            sensorChart.data.datasets[1].data.push(data.temperature);
+            sensorChart.update();
+
+            //hodnoty do cifernikov
+            gauge_temp.set(data.temperature);
+            gauge_hum.set(data.humidity);
+        });
+
+        //funkcia tlacidla
+        function sendCommand(command) {
+            socket.emit('command', command);
+            console.log('Sent command:', command);
+        }
+
+        // grafy - merania
+        const ctx = document.getElementById('sensorChart').getContext('2d');
+        const sensorChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],  
+                datasets: [
+                    {
+                        label: 'Vlhkosť (%)',
+                        borderColor: 'blue',
+                        fill: false,
+                        spanGaps: true,
+                        data: []
+                    },
+                    {
+                        label: 'Teplota (°C)',
+                        borderColor: 'red',
+                        fill: false,
+                        spanGaps: true,
+                        data: []
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Čas'
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Hodnota'
+                        },
+                        min: 0
+                    }
+                }
+            }
+        });
+
+        //nastavenia pre ciferniky
+        var options_temp = {
+            angle: 0,
+            radiusScale: 0.9,
+            colorStart: '#FA003F',  //cervena
+            colorStop: '#FA003F',
+            strokeColor: "#AAAAAA" //pozadie, sive
+        }
+        var options_hum = {
+            angle: 0,
+            radiusScale: 0.9,
+            colorStart: '#0000FF', //modra
+            colorStop: '#0000FF',
+            strokeColor: '#AAAAAA' //pozadie, sive
+        }
+        //ciferniky
+        const target_temp = document.getElementById("gaugeTemp");
+        const gauge_temp = new Gauge(target_temp).setOptions(options_temp);
+
+        const target_hum = document.getElementById("gaugeHum");
+        const gauge_hum = new Gauge(target_hum).setOptions(options_hum);
+
+        //nastavenie hodnot cifernikom
+        gauge_temp.maxValue = 50;
+        gauge_temp.setMinValue(-50);
+        gauge_temp.animationSpeed = 32;
+
+        gauge_hum.maxValue = 100;
+        gauge_hum.setMinValue(0);
+        gauge_hum.animationSpeed = 32;
+
+        //funkcia pre zadanie null do grafu ked neprijma klient data
+        setInterval(function(){
+            const now = Date.now();
+            const elapsed = now - lastDataTimestamp;
+
+            if (elapsed > 2000) { // 2 sekundy bez dat
+                const timestamp = new Date().toLocaleTimeString();
+                sensorChart.data.labels.push(timestamp);
+                sensorChart.data.datasets[0].data.push(null); // vlhkost
+                sensorChart.data.datasets[1].data.push(null); // teplota
+                sensorChart.update();
+
+                // vyprazdni hodnoty
+                document.getElementById('humidity').textContent = '--';
+                document.getElementById('temperature').textContent = '--';
+            }
+        }, 2000);
+
+        // SUBOR TAB
+
+        // ziskanie dat zo suboru, graf a vypis 
+        document.getElementById('csvFile').addEventListener('change', function (e){
+            const reader = new FileReader();
+            reader.onload = function (event){
+                const lines = event.target.result.split('\n').filter(line => line.trim() !== '');
+                const labels = []
+                const temp = [];
+                const hum = [];
+                for (let i = 1; i < lines.length; i++){
+                        const [timestamp_csv, humidity_csv, temperature_csv] = lines[i].split(',');
+                        const temp_num = parseFloat(temperature_csv);
+                        const hum_num = parseFloat(humidity_csv);
+                        
+                        labels.push(timestamp_csv);
+                        temp.push(parseFloat(temp_num));
+                        hum.push(parseFloat(hum_num));
+                        if (!isNaN(temp_num) && !isNaN(hum_num)) {
+                            const listFile = document.createElement('li');
+                            listFile.textContent = `${timestamp_csv} - Vlhkosť: ${hum_num} %, Teplota: ${temp_num} °C`;
+
+                            const fileList = document.getElementById('file-list');
+                            fileList.appendChild(listFile);
+                        }
+                }
+                new Chart(document.getElementById('fileChart'), {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                label: 'Teplota(°C)',
+                                data: temp,
+                                borderColor: 'red',
+                                fill: false,
+                                spanGaps: true,
+                            },
+                            {
+                                label: 'Vlhkosť(%)',
+                                data: hum,
+                                borderColor: 'blue',
+                                fill: false,
+                                spanGaps: true,
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        scales: {
+                            x: { title: { display: true, text: 'Čas' } },
+                            y: { title: { display: true, text: 'Hodnota' } }
+                        }
+                    }
+                });
+            };
+            reader.readAsText(e.target.files[0]);
+        });
+
+        // DATABAZA TAB
+
+        //prijimanie zaznamov z databazy, graf a vypis
+        fetch('/get_data')
+            .then(response => response.json())
+            .then(function(data){
+            const list = document.getElementById('db-list');
+            list.innerHTML = '';
+
+            const labels = [];
+            const temps = [];
+            const hums = [];
+
+            data.data.forEach(item => {
+                const li = document.createElement('li');
+                li.textContent = `Čas: ${item.timestamp}, Teplota: ${item.temperature}°C, Vlhkosť: ${item.humidity}%`;
+                list.appendChild(li);
+
+                labels.push(item.timestamp);
+                temps.push(item.temperature);
+                hums.push(item.humidity);
+            });
+            new Chart(document.getElementById('dbChart'), {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Teplota(°C)',
+                        data: temps,
+                        borderColor: 'red',
+                        fill: false,
+                        spanGaps: true,
+                    },
+                    {
+                        label: 'Vlhkosť(%)',
+                        data: hums,
+                        borderColor: 'blue',
+                        fill: false,
+                        spanGaps: true,
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    x: { title: { display: true, text: 'Čas' } },
+                    y: { title: { display: true, text: 'Hodnota' } }
+                }
+            }
+        });
+        })
+        .catch(error => console.error('Error loading data:', error));
+    </script>
+</body>
+</html>
